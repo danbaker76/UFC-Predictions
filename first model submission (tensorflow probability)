@@ -1,0 +1,194 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+%matplotlib inline
+import seaborn as sns
+
+df = pd.read_csv('ufc-master.csv')
+
+## Splitting into x_test & y_test
+from sklearn.model_selection import train_test_split
+
+#Copy the labels to their own dataframe
+label_df = df['label']
+
+# Setting X & y variables
+X = df.drop('label',axis=1)
+y = df['label']
+
+
+#Split the train set from the test set
+X_train, X_test, y_train, y_test = train_test_split(X,y,random_state=0,test_size=0.2)
+
+## Choosing Features to attribute to predictions
+my_features = ['R_odds',
+'R_age','B_age','lose_streak_dif',
+'win_streak_dif',
+'longest_win_streak_dif',
+'win_dif',
+'loss_dif',
+'total_round_dif',
+'total_title_bout_dif',
+'ko_dif',
+'sub_dif',
+'height_dif',
+'reach_dif',
+'age_dif',
+'sig_str_dif',
+'avg_sub_att_dif',
+'avg_td_dif']
+
+#Pulling names from the dataframe to later join to the prediction values
+fighters_test = X_test[['R_fighter', 'B_fighter']]
+odds_test = X_test[['R_odds', 'B_odds']]
+
+
+#Make dataframes that only contain the relevant features
+X_train_prepped = X_train[my_features].copy()
+X_test_prepped = X_test[my_features].copy()
+
+#Eventually, I would like to create dumm variables for a few of the columns, for now I am just keeping it to the continuous variables so this step is not necessary
+#X_train_prepped = pd.get_dummies(X_train_prepped)
+#X_test_prepped = pd.get_dummies(X_test_prepped)
+
+#Ensure both sets are dummified the same
+#X_train_prepped, X_test_prepped = X_train_prepped.align(X_test_prepped, join='left', axis=1)    
+
+#The new test set may have new new features after the above join.  Fill them with zeroes
+X_test_prepped = X_test_prepped.fillna(0)
+
+#Dropping the unused rows
+y_train_prepped = y_train[y_train.index.isin(X_train_prepped.index)]
+y_test_prepped = y_test[y_test.index.isin(X_test_prepped.index)]
+fighters_test_prepped = fighters_test[fighters_test.index.isin(X_test_prepped.index)]
+odds_test_prepped = odds_test[odds_test.index.isin(X_test_prepped.index)]
+
+## First scaling the data
+from sklearn.preprocessing import MinMaxScaler
+
+scaler = MinMaxScaler()
+X_train_prepped = scaler.fit_transform(X_train_prepped)
+X_test_prepped = scaler.transform(X_test_prepped)
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Activation,Dropout
+from tensorflow.keras.constraints import max_norm
+
+## Building the ANN model
+
+model = Sequential()
+
+# https://stats.stackexchange.com/questions/181/how-to-choose-the-number-of-hidden-layers-and-nodes-in-a-feedforward-neural-netw
+
+
+# input layer
+model.add(Dense(40,  activation='tanh'))
+model.add(Dropout(0.2))
+
+# hidden layer
+model.add(Dense(20, activation='relu'))
+model.add(Dropout(0.2))
+
+# hidden layer
+model.add(Dense(10, activation='relu'))
+#model.add(Dropout(0.2))
+
+# hidden layer
+#model.add(Dense(5, activation='selu'))
+#model.add(Dropout(0.2))
+
+# output layer
+model.add(Dense(units=1,activation='sigmoid'))
+
+# Compile model
+model.compile(loss='binary_crossentropy', optimizer='adam')
+
+# Fitting the model to the training data and testing with the testing data
+model.fit(x=X_train_prepped, y=y_train_prepped.ravel(),
+          epochs=500,
+         batch_size=256,
+          validation_data=(X_test_prepped, y_test_prepped)
+         )
+         
+# Generating the probabilities using the Tensorflow Probability model we have generated
+probs = model.predict_proba(X_test_prepped)
+probs2 = 1-probs
+
+# Plotting the losses to see what the correct number of Epochs is to put into the model
+losses = pd.DataFrame(model.history.history)
+losses[['loss','val_loss']].plot()
+
+## The sweet spot seems to be 400 epochs, after that validation loss exceeds the loss on our model and it begins to overfit
+
+#Merge fighter names and probabilities
+
+fighters_array = fighters_test_prepped.to_numpy()
+
+combined_array = []
+
+for n in range(len(fighters_array)):
+    combined_array.append([fighters_array[n][0], fighters_array[n][1], probs[n][0], probs2[n][0]])
+    
+## Now, we have a model that has been trained over the entire population of UFC Data and we can fit it to the upcoming UFC event
+## this includes repeating all the necessary transformations to the data that we did for the train/test data
+
+#Let's put all the labels into a dataframe
+df_upcoming['label'] = ''
+
+#We need to convert 'Red' and 'Blue' to 0 and 1
+mask = df_upcoming['Winner'] == 'Red'
+df_upcoming['label'][mask] = 0
+mask = df_upcoming['Winner'] == 'Blue'
+df_upcoming['label'][mask] = 1
+
+#Make sure label is numeric
+df_upcoming['label'] = pd.to_numeric(df_upcoming['label'], errors='coerce')
+
+#Make sure the date column is datetime
+df_upcoming['date'] = pd.to_datetime(df_upcoming['date'])
+
+#Copy the labels to their own dataframe
+label_df = df_upcoming['label']
+
+fighters_test = df_upcoming[['R_fighter', 'B_fighter']]
+odds_test = df_upcoming[['R_odds', 'B_odds']]
+
+df_test = df_upcoming
+
+#Make dataframes that only contain the relevant features
+df_test_prepped = df_test[my_features].copy()
+
+#The new test set may have new new features after the above join.  Fill them with zeroes
+df_test_prepped = df_test_prepped.fillna(0)
+
+#Since we may have dropped some rows we need to drop the matching rows in the labels
+label_test_prepped = y_test[y_test.index.isin(df_test_prepped.index)]
+fighters_test_prepped = fighters_test[fighters_test.index.isin(df_test_prepped.index)]
+odds_test_prepped = odds_test[odds_test.index.isin(df_test_prepped.index)]
+
+## Scalar transform for the new data
+df_test_prepped = scaler.transform(df_test_prepped)
+
+new_predictions = model.predict_classes(df_test_prepped)
+
+new_probs = model.predict_proba(df_test_prepped)
+new_probs2 = 1-probs
+
+
+new_fighters_array = new_fighters_test_prepped.to_numpy()
+
+new_combined_array = []
+
+for n in range(len(new_fighters_array)):
+    new_combined_array.append([new_fighters_array[n][0], new_fighters_array[n][1], new_probs[n][0], new_probs2[n][0]])
+    
+column_names = ['R_fighter', 'B_fighter', 'R_prob', 'B_prob']
+
+# Putting my submission into a dataframe
+new_temp_df = pd.DataFrame(new_combined_array, columns = column_names)
+
+## Using that dataframe to create a CSV and send in my submission!
+new_temp_df.to_csv('dans_sample_submission.csv', index=False)
+
+
