@@ -1,6 +1,6 @@
 # UFC-Predictions
 
-This reposity is my attempt at trying out different tools to predict the outcome of UFC fights.
+This repository is my attempt at trying out different tools to predict the outcome of UFC fights.
 
 Credit goes to mdabbert on Kaggle for consistantly updating this dataset of historical, previous and upcoming UFC events (https://www.kaggle.com/mdabbert/ultimate-ufc-dataset) as well as creating a template for preparing a prediction task submission.
 
